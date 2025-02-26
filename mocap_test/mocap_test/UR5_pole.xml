@@ -253,7 +253,7 @@ Control Engineering / Automation Engineering
         </body-->
         
         <body name="T_shape" >
-            <geom name="T_shape" mesh="T_block" pos="-0.2 0.6 0.8601" quat="0.88 0 0 0.48" rgba="0 0.8 0 1" size="0.04 0.04 0.04" type="mesh" />
+            <geom name="T_shape" mesh="T_block" pos="-0.2 0.6 0.8601" quat="0.88 0 0 0.48" rgba="0 0.8 0 1" size="0.04 0.04 0.04" type="mesh" contype="0" conaffinity="0"/>
             <site name="T_shape_site" type="sphere" pos="-0.2 0.6 0.8601" quat="0.88 0 0 0.48" size="0.01 0.01 0.01" rgba="0 0 1 1"></site>
         </body>
  
@@ -268,17 +268,21 @@ Control Engineering / Automation Engineering
             
         </body-->
 
-	<body name="T_block" pos="0.2 0.65 0.9202">
+	<body name="T_block" pos="0.15 0.65 0.9202">
 	     <inertial mass="5" diaginertia="0.01 0.01 0.01" pos="0.2 0.6 0.92" />
             <joint armature="0" axis="1 0 0" damping="1.05" limited="true" name="T_block_x" pos="0 0 0" range="-5. 5." stiffness="00" type="slide"/>
             <joint armature="0" axis="0 1 0" damping="1.05" limited="true" name="T_block_y" pos="0 0 0" range="-5. 5." stiffness="00" type="slide"/>
             <joint armature="0" axis="0 0 1" damping="1.05" limited="true" name="T_block_z" pos="0 0 0" range="-2. 2." stiffness="00" type="slide"/>
             <joint armature="0" damping="1.05" name="T_block_rot" stiffness="0" type="hinge"/>
-            <geom size=".10 .025 .020" type="box" material="bench_mat" rgba="1 0 0 1" mass="1.0" friction="1.0 0.5 0.5" contype="1" conaffinity="1" condim="4" />
-            <geom size=".025 .1 .020" pos="0 -0.125 0" type="box" material="bench_mat" rgba="1 0 0 1" mass="1.0" friction="1.0 0.5 0.5" contype="1" conaffinity="1" condim="4" />
+            <geom size=".10 .025 .020" type="box" material="bench_mat" rgba="1 0 0 1" mass="1.0" friction="2.0 0.8 0.5" contype="1" conaffinity="1" condim="4" />
+            <geom size=".025 .1 .020" pos="0 -0.125 0" type="box" material="bench_mat" rgba="1 0 0 1" mass="1.0" friction="2.0 0.5 0.5" contype="1" conaffinity="1" condim="4" />
             <site name="T_block_site" type="sphere" pos="0.2 0.6 0.92" quat="1 0 0 0 " size="0.01 0.01 0.01" rgba="0 0 1 1"/>
 	</body>
  
+ 	<body name="Initial_pos" pos="0.2 0.4 0.9101">
+ 		<geom type="ellipsoid"rgba="0 0 0.8 1" size="0.015 0.015 0.001"contype="0" conaffinity="0"/>
+ 		
+ 	</body>
         <!--body name="box_1" pos="0.6 0.0 1">
             <joint armature="0" axis="1 0 0" damping="0" limited="true" name="box_1_x" pos="0 0 0" range="-5. 5." stiffness="0" type="slide"/>
             <joint armature="0" axis="0 1 0" damping="0" limited="true" name="box_1_y" pos="0 0 0" range="-5. 5." stiffness="0" type="slide"/>

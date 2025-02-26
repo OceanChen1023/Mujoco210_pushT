@@ -8,6 +8,8 @@ import cv2
 import mujoco_py
 import threading
 import mujoco
+import zarr
+import os
 
 import rclpy
 from rclpy.node import Node
@@ -184,6 +186,8 @@ class Viewer(MjViewer):
         super().__init__(sim)
         self.controller =  Controller(sim)
         self.running = True
+        self.reset = False
+        self.record_flag = False
     def key_callback(self, window, key, scancode, action, mods):
         # Trigger on keyup only:
         if key == glfw.KEY_UP:
@@ -198,17 +202,17 @@ class Viewer(MjViewer):
         elif key == glfw.KEY_LEFT:
             self.controller.move_y(Direction.NEG)
 
-        elif key == glfw.KEY_B:
+        elif key == glfw.KEY_M:
             self.controller.move_x(Direction.NEG) 
 
-        elif key == glfw.KEY_F:
+        elif key == glfw.KEY_J:
             self.controller.move_x(Direction.POS)
 
         elif key == glfw.KEY_A:
             self.controller.rot_y(Direction.POS)
 
-        elif key == glfw.KEY_S:
-            self.controller.rot_y(Direction.NEG)
+        # elif key == glfw.KEY_S:
+        #     self.controller.rot_y(Direction.NEG)
 
         elif key == glfw.KEY_Q:
             self.controller.rot_x(Direction.POS)
@@ -229,36 +233,48 @@ class Viewer(MjViewer):
             self.controller.speed_up()
         elif key == glfw.KEY_ESCAPE:
             self.running = False
+        elif key == glfw.KEY_O:
+            self.record_flag = True
         else:
             super().key_callback(window, key, scancode, action, mods)
 
-        if action == glfw.PRESS:
-            if key  == glfw.KEY_O:
-                if Start_Record["o"]==True:
-                    print("Stop Recording")
-                    Start_Record["o"] = False
-                elif Start_Record["o"]==False:
-                    print("Start Recording")
-                    Start_Record["o"] = True
+
+        # if action == glfw.PRESS:
+        #     if key  == glfw.KEY_O:
+        #         if Start_Record["o"]==True:
+        #             print("Stop Recording")
+        #             Start_Record["o"] = False
+        #         elif Start_Record["o"]==False:
+        #             print("Start Recording")
+        #             Start_Record["o"] = True
                     
     def is_running(self):
         return self.running
                         
-                    
+    def resetflag(self):
+        return self.reset
+    
+    def resetflag_reset(self):
+        self.reset=False
 
-    def add_extra_menu(self):
+    def record_flag(self):
+        return self.record_flag
+
+
+    def add_extra_menu(self,robot_position):
         self.add_overlay(
             const.GRID_TOPRIGHT,
             "Go up/down/left/right",
             "[up]/[down]/[left]/[right] arrow",
         )
-        self.add_overlay(const.GRID_TOPRIGHT, "Go forwarf/backward", "[F]/[B]")
+        self.add_overlay(const.GRID_TOPRIGHT, "Go forwarf/backward", "[J]/[M]")
         self.add_overlay(const.GRID_TOPRIGHT, "ROT_X", "[Q]/[W]")
         self.add_overlay(const.GRID_TOPRIGHT, "ROT_Y", "[A]/[S]")
         self.add_overlay(const.GRID_TOPRIGHT, "ROT_Z", "[Z]/[X]")
         self.add_overlay(const.GRID_TOPRIGHT, "Slow down/Speed up", "[-]/[=]")
         self.add_overlay(const.GRID_TOPRIGHT, "Start/Stop Record", "[O]")
-
+        self.add_overlay(const.GRID_TOPRIGHT, "RobotPosition:",str(robot_position))
+        
 
 
 
@@ -273,12 +289,53 @@ def run_ros_node(get_robot_position,args=None):
         rclpy.shutdown()
 
 
+
 def main():
 
-    # load model
+    #######    load model & viewer set up camera setting     ############
     model = load_model_from_path("./UR5_pole.xml")
     sim = MjSim(model)
-    
+    viewer = Viewer(sim)
+    body_id = sim.model.body_name2id('Pole')
+    lookat = sim.data.body_xpos[body_id]
+    for idx, value in enumerate(lookat):
+        viewer.cam.lookat[idx] = value
+    viewer.cam.distance = 4
+    viewer.cam.azimuth = -90.
+    viewer.cam.elevation = -15
+    render_context=mujoco_py.MjRenderContextOffscreen(sim,None,1)
+    render_context.vopt.geomgroup[2]=1
+    render_context.vopt.geomgroup[1]=1
+    sim.add_render_context(render_context)
+
+    #########   initialize   .zarr     #################
+    #file_path = "Demo/Demo1.zarr"
+    file_directory = "Demo"
+    files = [f for f in os.listdir(file_directory)]
+    file_count = len(files)
+    print("file_count",file_count)
+    # if os.path.exists(file_path): 
+    #     root = zarr.open(file_path, mode="a")  # "a" 模式：如果檔案存在則開啟，不存在則創建
+    #     data_group = root.require_group("Data")
+    #     meta_group = root.require_group("Meta")
+    #     #last_index = meta_group["Meta"]["timestep"][-1,]
+    #     print(f"✅ Zarr 資料夾已開啟: {file_path}")
+    # else:
+    file_name =  file_directory+"/"+f"{file_count + 1}"+"/"+f"{file_count + 1}.zarr"
+    root = zarr.open(file_name, mode="w")
+    print(f"📂 已新建 Zarr 檔案: {file_name}")
+    data_group = root.require_group("Data")
+    meta_group = root.require_group("Meta")
+    data_group.require_dataset("mocap_pos", shape=(0,3),maxshape=(None,3), dtype=np.float32, chunks=True)
+    data_group.require_dataset("mocap_quat", shape=(0,4),maxshape=(None,4), dtype=np.float32, chunks=True)
+    data_group.require_dataset("joint_pos", shape=(0,6),maxshape=(None,6), dtype=np.float32, chunks=True)
+    data_group.require_dataset("joint_vel", shape=(0,6),maxshape=(None,6), dtype=np.float32, chunks=True)
+    data_group.require_dataset("timestep", shape=(0,), maxshape=(None,), dtype=np.int32, chunks=True)
+    data_group.require_dataset("actual_time", shape=(0,),maxshape=(None,), dtype=np.float32, chunks=True)
+    meta_group.require_dataset("episode_end", shape=(0,), maxshape=(None,), dtype=np.int32, chunks=True)
+   
+   
+
     def get_robot_position():
         return sim.data.get_mocap_pos("mocap")
 
@@ -289,43 +346,32 @@ def main():
     GlfwContext(offscreen=True)  # Create a window to init GLFW.
 
 
-    # viewer set up
-    viewer = Viewer(sim)
-    body_id = sim.model.body_name2id('Pole')
-    lookat = sim.data.body_xpos[body_id]
-    for idx, value in enumerate(lookat):
-        viewer.cam.lookat[idx] = value
-    viewer.cam.distance = 4
-    viewer.cam.azimuth = -90.
-    viewer.cam.elevation = -15
-    # camera setting
-    render_context=mujoco_py.MjRenderContextOffscreen(sim,None,1)
-    
-    render_context.vopt.geomgroup[2]=1
-    render_context.vopt.geomgroup[1]=1
-    sim.add_render_context(render_context)
-
-
+    ############  Camera Recorder  #############
     cam_names=["front_cam", "wrist_cam"]
     video_writers={}
     frame_size=(800,600)
-    fps=60
+    fps=120
     for cam_name in cam_names:
-        output_path=f"{cam_name}_video.avi"
-        video_writers[cam_name]=cv2.VideoWriter(output_path,cv2.VideoWriter_fourcc(*'XVID'),fps,frame_size,fps)# postion offset  XVID
+        output_path=file_directory+"/"+f"{file_count+1}/"+f"{cam_name}_video_{file_count+1}.avi"
+        video_writers[cam_name]=cv2.VideoWriter(output_path,cv2.VideoWriter_fourcc(*'XVID'),fps,frame_size,isColor=True)# postion offset  XVID
+    
+    
+    
     sim.data.set_mocap_pos("mocap", np.array([0.0, 0.6, 1.236]))  #+ np.array([0.3, 0 , -0.4]))
-    sim.step()
-    #sim.data.set_mocap_quat("mocap",np.array([0.71,0,0.71,0]))
     sim.data.set_mocap_quat("mocap",np.array([0.71,0,0.71,0]))
-    sim.data.qpos[0:6]=np.array([0.113,-0.163,1.79,-0.046,-0.26,-0])
-    sim.step()
-    # sim.forward()
-    T_block_site_id = sim.model.site_name2id("T_block_site")
-    print("T_shape_site_id",T_block_site_id)
-    sim.model.site_rgba[T_block_site_id]=[0., 0., 1., 1.]
-    T_block_site_cnt = 0
+    for _ in range(100):
+        sim.step()
+        viewer.render()
+    sim.data.set_mocap_pos("mocap", np.array([0.2, 0.4, 0.916]))  #+ np.array([0.3, 0 , -0.4]))
+    
+    #sim.data.qpos[0:6]=np.array([0.113,-0.163,1.79,-0.046,-0.26,-0])
+    #T_block_site_id = sim.model.site_name2id("T_block_site")
+    #print("T_shape_site_id",T_block_site_id)
+    #sim.model.site_rgba[T_block_site_id]=[0., 0., 1., 1.]
+
+    hz=10
     while True: 
-        if Start_Record["o"]==True :
+        if viewer.record_flag==True :
              # Record video
             #print("Start Record")
             for cam_name in cam_names:
@@ -334,7 +380,7 @@ def main():
                 bgr_array=render_context.read_pixels(frame_size[0],frame_size[1],depth=False)[::-1]
                 rgb_image = cv2.cvtColor(bgr_array, cv2.COLOR_BGR2RGB)
                 video_writers[cam_name].write(rgb_image)
-        T_block_position = sim.data.site_xpos[T_block_site_id]  # 获取对应的全局位置    
+                #T_block_position = sim.data.site_xpos[T_block_site_id]  # 获取对应的全局位置    
 
         for joint_id in range(sim.model.njnt):
             joint_name = sim.model.joint_id2name(joint_id)
@@ -342,30 +388,53 @@ def main():
             dof_position = sim.data.qpos[joint_dofadr]
             dof_velocity = sim.data.qvel[joint_dofadr]
 
-            #print(f"Joint Name: {joint_name}")
-            print(f"Joint Name: {joint_name} Position (qpos): {dof_position}")
+            #print(f"Joint Name: {joint_name} Position (qpos): {dof_position}")
             #print(f"  Velocity (qvel): {dof_velocity}")
-        #robotposition=sim.data.xpos[mocap_position]
+        joint_pos=sim.data.qpos[0:6].reshape(1,6)
+        joint_vel=sim.data.qvel[0:6].reshape(1,6)
+        print("Joint_pos:", " ".join(f"{pos:.3f}" for pos in sim.data.qpos[0:6]))
+        print("Joint_vel:", " ".join(f"{vel:.3f}" for vel in sim.data.qvel[0:6]))
+
+        #print("Joint_vel:",f"{sim.data.qvel[1:6]:3f}")
+            #robotposition=sim.data.xpos[mocap_position]
         mocap_quaternion = sim.data.get_mocap_quat("mocap")
         robot_Position=sim.data.get_mocap_pos("mocap")
+        robot_Position=robot_Position.reshape(1,3)
+        mocap_quaternion=mocap_quaternion.reshape(1,4)
         print("robot position:",robot_Position)
         print("Mocap Quaternion:", mocap_quaternion)
-
-        # if T_block_site_cnt % 100 == 1:
-        #     print("T_shape_pt 全局位置:", T_block_position)
-        # T_block_site_cnt += 1
-        #print("Robot Position:", robot_position)
+        print("Shape of robot position:",robot_Position.shape)
         sim.step()
 
         viewer.render()
-        viewer.add_extra_menu()
+        viewer.add_extra_menu(robot_Position)
+        # 依 timestep 存數據
+        temp_timestep=model.opt.timestep  #0.002
+        print("temp_timestep:",temp_timestep)
+        current_timestep = int(sim.data.time / model.opt.timestep)
+        print("sim.data.time:",sim.data.time)
+        print("current_timestep:",current_timestep)
+        actual_time=current_timestep* temp_timestep
+        print("actual_time:",actual_time)
+        trigger_interval = int(1/(hz*temp_timestep))
+        #print("trigger_interval:",trigger_interval)
         
+        if current_timestep % ((1/hz)/model.opt.timestep) == 0 :  #10hz
+            if viewer.record_flag==True :
+            # meta_group["timestep"].append(np.array([t]))
+                data_group["actual_time"].append(np.array([actual_time]))
+                data_group["timestep"].append(np.array([current_timestep]))
+                data_group["mocap_pos"].append(np.array(robot_Position)) #sim.data.get_mocap_pos("mocap")
+                data_group["mocap_quat"].append(mocap_quaternion)#sim.data.get_mocap_quat("mocap")
+                data_group["joint_pos"].append(np.array(joint_pos)) # root["ctrl"][t] = sim.data.ctrl
+                data_group["joint_vel"].append(np.array(joint_vel)) 
+
         if viewer.is_running() == False:
             print("viewer is closing...")
+            meta_group["episode_end"].append(np.array([current_timestep]))
             rclpy.shutdown()
             ros_thread.join()
             break;
-
 
     for writer in video_writers.values():
         writer.release()  
@@ -373,3 +442,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+    

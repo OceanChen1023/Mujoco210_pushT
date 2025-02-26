@@ -18,16 +18,18 @@ Start_Record = {"o":False,"p":False} #False
 #Ros2 Publisher----------------------------------------------------------------
 class MinimalPublisher(Node):
 
-    def __init__(self):
+    def __init__(self,robotpos_callback):
         super().__init__('minimal_publisher')
         self.publisher_ = self.create_publisher(String, 'topic', 10)
         timer_period = 0.5  # seconds
         self.timer = self.create_timer(timer_period, self.timer_callback)
         self.i = 0
+        self._robot_position=robotpos_callback
 
     def timer_callback(self):
         msg = String()
-        msg.data = 'Hello World: %d' % self.i
+        rotpos=self._robot_position()
+        msg.data = 'Robot position= %s' % rotpos   #'Hello World: %d' % self.i
         self.publisher_.publish(msg)
         self.get_logger().info('Publishing: "%s"' % msg.data)
         self.i += 1
@@ -156,13 +158,13 @@ class Controller():
         """
         Move gripper along given axis and direction.
         """
-        if axis == 2:
+        if axis == 2:  #Z axis
             self.sim.data.set_mocap_pos("mocap", self.sim.data.mocap_pos +  np.array([0, 0, self.pos_speed * direction.value]))
             self.sim.step()
-        elif axis == 1:
+        elif axis == 0: #y axis
             self.sim.data.set_mocap_pos("mocap", self.sim.data.mocap_pos +  np.array([0, self.pos_speed * direction.value, 0]))
             self.sim.step()
-        elif axis == 0:
+        elif axis == 1: #x axis
             self.sim.data.set_mocap_pos("mocap", self.sim.data.mocap_pos +  np.array([self.pos_speed * direction.value, 0, 0]))
             self.sim.step()
         else: 
@@ -258,10 +260,12 @@ class Viewer(MjViewer):
         self.add_overlay(const.GRID_TOPRIGHT, "Start/Stop Record", "[O]")
 
 
-def run_ros_node(args=None):
+
+
+def run_ros_node(get_robot_position,args=None):
     """Run the ROS 2 node in a separate thread."""
     rclpy.init(args=args)
-    minimal_publisher=MinimalPublisher()
+    minimal_publisher=MinimalPublisher(get_robot_position)
     try:
         rclpy.spin(minimal_publisher)
     finally:
@@ -269,29 +273,31 @@ def run_ros_node(args=None):
         rclpy.shutdown()
 
 
-
 def main():
-    #rclpy.init(args=args)
-    #minimal_publisher=MinimalPublisher()
-    
-    ros_thread = threading.Thread(target=run_ros_node)
-    ros_thread.start()
-    from mujoco_py import GlfwContext
-    GlfwContext(offscreen=True)  # Create a window to init GLFW.
 
     # load model
     model = load_model_from_path("./UR5_pole.xml")
     sim = MjSim(model)
     
+    def get_robot_position():
+        return sim.data.get_mocap_pos("mocap")
+
+
+    ros_thread = threading.Thread(target=run_ros_node,args=(get_robot_position,))
+    ros_thread.start()
+    from mujoco_py import GlfwContext
+    GlfwContext(offscreen=True)  # Create a window to init GLFW.
+
+
     # viewer set up
     viewer = Viewer(sim)
-    body_id = sim.model.body_name2id('ee_link')
+    body_id = sim.model.body_name2id('Pole')
     lookat = sim.data.body_xpos[body_id]
     for idx, value in enumerate(lookat):
         viewer.cam.lookat[idx] = value
     viewer.cam.distance = 4
-    viewer.cam.azimuth = 180.
-    viewer.cam.elevation = 0
+    viewer.cam.azimuth = -90.
+    viewer.cam.elevation = -15
     # camera setting
     render_context=mujoco_py.MjRenderContextOffscreen(sim,None,1)
     
@@ -307,13 +313,18 @@ def main():
     for cam_name in cam_names:
         output_path=f"{cam_name}_video.avi"
         video_writers[cam_name]=cv2.VideoWriter(output_path,cv2.VideoWriter_fourcc(*'XVID'),fps,frame_size,fps)# postion offset  XVID
-    sim.data.set_mocap_pos("mocap", np.array([0.08229997, 0.10921554, 1.871059]) + np.array([0.3, 0 , -0.4]))
-
+    sim.data.set_mocap_pos("mocap", np.array([0.0, 0.6, 1.236]))  #+ np.array([0.3, 0 , -0.4]))
+    sim.step()
+    #sim.data.set_mocap_quat("mocap",np.array([0.71,0,0.71,0]))
+    sim.data.set_mocap_quat("mocap",np.array([0.71,0,0.71,0]))
+    sim.data.qpos[0:6]=np.array([0.113,-0.163,1.79,-0.046,-0.26,-0])
+    sim.step()
+    # sim.forward()
     T_block_site_id = sim.model.site_name2id("T_block_site")
     print("T_shape_site_id",T_block_site_id)
     sim.model.site_rgba[T_block_site_id]=[0., 0., 1., 1.]
     T_block_site_cnt = 0
-    while True:
+    while True: 
         if Start_Record["o"]==True :
              # Record video
             #print("Start Record")
@@ -324,12 +335,28 @@ def main():
                 rgb_image = cv2.cvtColor(bgr_array, cv2.COLOR_BGR2RGB)
                 video_writers[cam_name].write(rgb_image)
         T_block_position = sim.data.site_xpos[T_block_site_id]  # 获取对应的全局位置    
-        
-        if T_block_site_cnt % 100 == 1:
-            print("T_shape_pt 全局位置:", T_block_position)
-        T_block_site_cnt += 1
-        
+
+        for joint_id in range(sim.model.njnt):
+            joint_name = sim.model.joint_id2name(joint_id)
+            joint_dofadr = sim.model.jnt_dofadr[joint_id]  # DOF 索引
+            dof_position = sim.data.qpos[joint_dofadr]
+            dof_velocity = sim.data.qvel[joint_dofadr]
+
+            #print(f"Joint Name: {joint_name}")
+            print(f"Joint Name: {joint_name} Position (qpos): {dof_position}")
+            #print(f"  Velocity (qvel): {dof_velocity}")
+        #robotposition=sim.data.xpos[mocap_position]
+        mocap_quaternion = sim.data.get_mocap_quat("mocap")
+        robot_Position=sim.data.get_mocap_pos("mocap")
+        print("robot position:",robot_Position)
+        print("Mocap Quaternion:", mocap_quaternion)
+
+        # if T_block_site_cnt % 100 == 1:
+        #     print("T_shape_pt 全局位置:", T_block_position)
+        # T_block_site_cnt += 1
+        #print("Robot Position:", robot_position)
         sim.step()
+
         viewer.render()
         viewer.add_extra_menu()
         
